@@ -1,0 +1,43 @@
+
+#--| LOCAL DEV OVERRIDES |----------------------------------
+# Install neovim
+COPY neovim_0.8.1_arm64.deb /root/neovim_0.8.1_arm64.deb
+RUN apt-get install -y /root/neovim_0.8.1_arm64.deb
+
+# Python dev dependencies
+RUN pip install black isort flake8 debugpy pyright 
+
+# Install treesitter deps
+RUN curl -fLo /usr/local/share/nvim/site/autoload/plug.vim --create-dirs \
+   https://raw.githubusercontent.com/junegunn/vim-plug/master/plug.vim
+
+
+# Install any plugins needed for build
+RUN echo "\
+redir! > /dev/stdout\n\
+call plug#begin('/usr/local/share/nvim/plugged')\n\
+Plug 'nvim-treesitter/nvim-treesitter'\n\
+call plug#end()\
+" > /root/nvim-build-plugins.vim
+RUN nvim --headless -u /root/nvim-build-plugins.vim -c 'PlugInstall --sync' -c 'qall'
+
+# Install treesitter parsers to /usr/local/share/nvim/site
+RUN mkdir -p /usr/local/share/nvim/site
+RUN echo "\
+vim.cmd('so /root/nvim-build-plugins.vim')\n\
+vim.cmd('redir! > /dev/stdout')\n\
+require'nvim-treesitter.configs'.setup{\n\
+    parser_install_dir = '/usr/local/share/nvim/site',\n\
+    ensure_installed = {\n\
+      'bash', 'c', 'cpp', 'css', 'elixir', 'fish', 'graphql', 'html',\n\
+      'javascript', 'json', 'jsonc', 'lua', 'markdown', 'markdown_inline',\n\
+      'php', 'python', 'regex', 'ruby', 'rust', 'scss', 'sql', 'toml', 'tsx',\n\
+      'typescript', 'vim', 'yaml',\n\
+    },\n\
+}\n\
+" >> /root/nvim-bootstrap.lua
+
+RUN nvim --headless -u /root/nvim-bootstrap.lua +qall
+
+# Create any other needed dirs
+RUN mkdir -p "${HOME}/.cache/nvim"
