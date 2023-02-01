@@ -1,0 +1,26 @@
+version: '3.1'
+
+services:
+  vim:
+    environment:
+    - COLORTERM
+    - ITERM_PROFILE
+    - ITERM_SESSION_ID
+    - LC_TERMINAL
+    - LC_TERMINAL_VERSION
+    - TERM
+    - TERM_PROGRAM
+    - TERM_PROGRAM_VERSION
+    - TERM_SESSION_ID
+    build:
+      context: .
+      dockerfile: Dockerfile.local
+    stdin_open: true
+    tty: true
+    entrypoint: nvim
+    volumes:
+    - ~/.dotfiles/.config/nvim:/root/.config/nvim
+    - nvim-data:/root/.local/share/nvim
+volumes:
+  nvim-data:
+    external: true

@@ -1,43 +1,41 @@
+ARG arch=arm64
 
-#--| LOCAL DEV OVERRIDES |----------------------------------
+%%__BASE_DOCKERFILE__%%
+
+#--| Local dev overrides |-----------------------------------------------------
+FROM base as override-base
+RUN apt-get update && apt-get install -y wget curl python3-pip python3 git
+
+#--| neovim |------------------------------------------------------------------
+FROM override-base as nvim
+ARG arch
+
 # Install neovim
-COPY neovim_0.8.1_arm64.deb /root/neovim_0.8.1_arm64.deb
-RUN apt-get install -y /root/neovim_0.8.1_arm64.deb
+ENV ARCH=${arch}
+RUN curl -fLo /root/neovim_0.8.1_$ARCH.deb \
+    https://github.com/bendavis78/neovim-docker-build/releases/download/v0.8.1/neovim_0.8.1_$ARCH.deb
+RUN apt-get install -y /root/neovim_0.8.1_$ARCH.deb
 
-# Python dev dependencies
-RUN pip install black isort flake8 debugpy pyright 
+#--| Base dev dependencies |----------------------------------------------------
+FROM nvim AS dev-deps
+ARG arch
 
-# Install treesitter deps
-RUN curl -fLo /usr/local/share/nvim/site/autoload/plug.vim --create-dirs \
-   https://raw.githubusercontent.com/junegunn/vim-plug/master/plug.vim
+# Install tree-sitter-cli
+RUN curl -fLo /usr/local/bin/tree-sitter \
+    https://github.com/bendavis78/tree-sitter-cli-docker-build/releases/download/v0.20.7/tree-sitter_0.20.7_$ARCH
+RUN chmod +x /usr/local/bin/tree-sitter
 
+# Install python dev dependencies
+RUN pip install black isort flake8 debugpy pyright pynvim
 
-# Install any plugins needed for build
-RUN echo "\
-redir! > /dev/stdout\n\
-call plug#begin('/usr/local/share/nvim/plugged')\n\
-Plug 'nvim-treesitter/nvim-treesitter'\n\
-call plug#end()\
-" > /root/nvim-build-plugins.vim
-RUN nvim --headless -u /root/nvim-build-plugins.vim -c 'PlugInstall --sync' -c 'qall'
+# Install nodejs dev dependencies
+RUN curl -fsSL https://deb.nodesource.com/setup_19.x | bash - && \
+    apt-get install -y nodejs
+RUN npm install -g neovim typescript emmet-ls
 
-# Install treesitter parsers to /usr/local/share/nvim/site
-RUN mkdir -p /usr/local/share/nvim/site
-RUN echo "\
-vim.cmd('so /root/nvim-build-plugins.vim')\n\
-vim.cmd('redir! > /dev/stdout')\n\
-require'nvim-treesitter.configs'.setup{\n\
-    parser_install_dir = '/usr/local/share/nvim/site',\n\
-    ensure_installed = {\n\
-      'bash', 'c', 'cpp', 'css', 'elixir', 'fish', 'graphql', 'html',\n\
-      'javascript', 'json', 'jsonc', 'lua', 'markdown', 'markdown_inline',\n\
-      'php', 'python', 'regex', 'ruby', 'rust', 'scss', 'sql', 'toml', 'tsx',\n\
-      'typescript', 'vim', 'yaml',\n\
-    },\n\
-}\n\
-" >> /root/nvim-bootstrap.lua
-
-RUN nvim --headless -u /root/nvim-bootstrap.lua +qall
-
+# --| Final |-------------------------------------------------------------------
 # Create any other needed dirs
+FROM dev-deps as final
 RUN mkdir -p "${HOME}/.cache/nvim"
+RUN mkdir /nvim-devcontainer-shared
+RUN ln -s "${HOME}/.local/share/nvim-devcontianer/nvim ${HOME}/.local/share/"
