@@ -20,7 +20,8 @@ services:
     entrypoint: nvim
     volumes:
       - .:/src:consistent
-      - ~/.dotfiles/.config/nvim:/root/.config/nvim
+      - ~/.dotfiles/.config/nvim:/root/.config/nvim:ro
+      - ~/.dotfiles/.config/copilot:/root/.config/copilot:ro
       - nvim-data:/root/.local/share/nvim
 volumes:
   nvim-data:

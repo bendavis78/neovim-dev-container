@@ -3,11 +3,11 @@ ARG arch=arm64
 %%__BASE_DOCKERFILE__%%
 
 #--| Local dev overrides |-----------------------------------------------------
-FROM base as override-base
-RUN apt-get update && apt-get install -y wget curl python3-pip python3 git
+FROM %%__BASE_STAGE__%% as %%__STAGE_PREFIX__%%-override
+RUN apt-get update && apt-get install -y wget curl python3-pip python3 git netcat ripgrep fd-find
 
 #--| neovim |------------------------------------------------------------------
-FROM override-base as nvim
+FROM %%__STAGE_PREFIX__%%-override as %%__STAGE_PREFIX__%%-nvim
 ARG arch
 
 # Install neovim
@@ -17,7 +17,7 @@ RUN curl -fLo /root/neovim_0.8.1_$ARCH.deb \
 RUN apt-get install -y /root/neovim_0.8.1_$ARCH.deb
 
 #--| Base dev dependencies |----------------------------------------------------
-FROM nvim AS dev-deps
+FROM %%__STAGE_PREFIX__%%-nvim AS %%__STAGE_PREFIX__%%-dev-deps
 ARG arch
 
 # Install tree-sitter-cli
@@ -29,13 +29,13 @@ RUN chmod +x /usr/local/bin/tree-sitter
 RUN pip install black isort flake8 debugpy pyright pynvim
 
 # Install nodejs dev dependencies
-RUN curl -fsSL https://deb.nodesource.com/setup_19.x | bash - && \
+RUN curl -fsSL https://deb.nodesource.com/setup_16.x | bash - && \
     apt-get install -y nodejs
 RUN npm install -g neovim typescript emmet-ls
 
 # --| Final |-------------------------------------------------------------------
 # Create any other needed dirs
-FROM dev-deps as final
+FROM %%__STAGE_PREFIX__%%-dev-deps as %%__STAGE_PREFIX__%%-final
 RUN mkdir -p "${HOME}/.cache/nvim"
 RUN mkdir /nvim-devcontainer-shared
 RUN ln -s "${HOME}/.local/share/nvim-devcontianer/nvim ${HOME}/.local/share/"
