@@ -1,0 +1,28 @@
+#--| Local dev overrides |-----------------------------------------------------
+FROM %%__BASE_IMAGE__%% as override
+
+RUN apt-get update && apt-get install -y wget curl python3-pip python3 git \
+    netcat-traditional ripgrep fd-find rsync
+
+#--| Base dev dependencies |----------------------------------------------------
+FROM override AS dev-deps
+
+# Install neoovim
+RUN wget https://github.com/neovim/neovim/releases/download/v0.9.5/nvim-linux64.tar.gz
+RUN tar xzf nvim-linux64.tar.gz
+RUN rsync -av nvim-linux64/ /usr/local/
+
+# Install python dev dependencies
+RUN pip install black isort flake8 debugpy pyright pynvim
+
+# Install nodejs dev dependencies
+RUN curl -fsSL https://deb.nodesource.com/setup_16.x | bash - && \
+    apt-get install -y nodejs
+RUN npm install -g neovim typescript emmet-ls tree-sitter-cli
+
+# --| Final |-------------------------------------------------------------------
+# Create any other needed dirs
+FROM dev-deps as final
+RUN mkdir -p "${HOME}/.cache/nvim"
+RUN mkdir /nvim-devcontainer-shared
+RUN ln -s "${HOME}/.local/share/nvim-devcontianer/nvim ${HOME}/.local/share/"

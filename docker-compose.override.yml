@@ -1,7 +1,5 @@
-version: '3.1'
-
 services:
-  vim:
+  %%__SERVICE_NAME__%%:
     environment:
       - COLORTERM
       - ITERM_PROFILE
@@ -12,9 +10,12 @@ services:
       - TERM_PROGRAM
       - TERM_PROGRAM_VERSION
       - TERM_SESSION_ID
-    build:
-      context: .
-      dockerfile: Dockerfile.local
+    image:
+      %%__IMAGE_NAME__%%
+    # Uncomment to build from custom dockerfile, then add "-custom" to the above image name.
+    #build:
+    #  context: .
+    #  dockerfile: Dockerfile.nvim.local  # make sure
     stdin_open: true
     tty: true
     entrypoint: nvim

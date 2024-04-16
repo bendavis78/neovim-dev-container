@@ -1,0 +1,129 @@
+#!/usr/bin/env python3
+
+import argparse
+import hashlib
+import os
+import random
+from re import sub
+import string
+import subprocess
+import sys
+import tempfile
+from ruamel.yaml import YAML
+
+
+script_dir = os.path.dirname(os.path.realpath(__file__))
+
+
+def random_string(length):
+    charset = string.ascii_lowercase + string.digits
+    return "".join(random.choice(charset) for _ in range(length))
+
+
+def deep_merge(dict1, dict2):
+    result = dict1.copy()
+    for key, value in dict2.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = deep_merge(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
+class CommandError(Exception):
+    pass
+
+
+def build(args):
+    with open(os.path.join(script_dir, "Dockerfile.amd64"), "r") as f:
+        template_contents = f.read()
+
+    new_dockerfile_contents = template_contents.replace(
+        "%%__BASE_IMAGE__%%", args.image_name
+    )
+
+    with tempfile.NamedTemporaryFile() as f:
+        f.write(new_dockerfile_contents.encode())
+        f.flush()
+        tag = f"{args.image_name}:nvim-devcontainer"
+        # run the docker bui.d command and raise error if failed
+        cmd = ["docker", "build", "-t", tag, "-f", f.name, args.directory]
+        print("Running: " + " ".join(cmd))
+        subprocess.run(cmd, check=True)
+
+    print(f'Image "{tag}" is now available')
+
+
+def update_compose(args):
+    nvim_dc_overried_path = os.path.join(script_dir, "docker-compose.override.yml")
+    dc_override_path = args.file
+    if not dc_override_path:
+        # set path to docker-compose.override.yml in the current directory
+        dc_override_path = os.path.join(os.getcwd(), "docker-compose.override.yml")
+
+    if not os.path.exists(dc_override_path):
+        raise CommandError(f"File not found: {os.path.relpath(dc_override_path)}")
+
+    print(f"Updating {os.path.relpath(dc_override_path)}...")
+    yaml = YAML()
+    with open(nvim_dc_overried_path, "r") as f:
+        new_compose_contents = f.read()
+        new_compose_contents = new_compose_contents.replace(
+            "%%__SERVICE_NAME__%%", args.name
+        ).replace("%%__IMAGE_NAME__%%", f"{args.image_name}:nvim-devcontainer")
+        nvim_dc_config = yaml.load(new_compose_contents)
+        
+    if not os.path.exists(dc_override_path):
+        with open(dc_override_path, "w") as f:
+            yaml.dump(nvim_dc_config, f)
+        print(f"Created {os.path.relpath(dc_override_path)}")
+    else:
+        with open(dc_override_path, "r") as f:
+            dc_override_config = yaml.load(f)
+
+        new_dc_override_config = deep_merge(dc_override_config, nvim_dc_config)
+
+        with open(dc_override_path, "w") as f:
+            yaml.dump(new_dc_override_config, f)
+
+        print(f"Configured service '{args.name}' in {os.path.relpath(dc_override_path)}")
+
+
+def main():
+    # TODO: Use docker-compose yml to determine image name and dockerfile path
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-i", "--image-name", type=str, help="Base image to use")
+    subparsers = parser.add_subparsers(dest="command")
+    build_parser = subparsers.add_parser("build", help="Build devcontainer image")
+    build_parser.add_argument("directory", type=str, help="Build context directory")
+
+    compose_parser = subparsers.add_parser(
+        "update-service", help="Add vim service to docker-compose.override.yml"
+    )
+    compose_parser.add_argument(
+        "-n", "--name", type=str, help="Name of the service to add", default="vim"
+    )
+    compose_parser.add_argument(
+        "-f",
+        "--file",
+        type=str,
+        help="Path to docker-compose.override.yml",
+        default=None
+    )
+
+    args = parser.parse_args()
+
+    if args.command == "build":
+        build(args)
+
+    elif args.command == "update-service":
+        update_compose(args)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except CommandError as e:
+        sys.stderr.write(f"e.value\n")
+        sys.exit(1)
