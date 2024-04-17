@@ -15,12 +15,11 @@ services:
     # Uncomment to build from custom dockerfile, then add "-custom" to the above image name.
     #build:
     #  context: .
-    #  dockerfile: Dockerfile.nvim.local  # make sure
+    #  dockerfile: Dockerfile.nvim.local
     stdin_open: true
     tty: true
     entrypoint: nvim
     volumes:
-      - .:/src:consistent
       - ~/.dotfiles/.config/nvim:/root/.config/nvim:ro
       - ~/.dotfiles/.config/copilot:/root/.config/copilot:ro
       - nvim-data:/root/.local/share/nvim

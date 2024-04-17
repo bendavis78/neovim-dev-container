@@ -21,8 +21,10 @@ RUN curl -fsSL https://deb.nodesource.com/setup_16.x | bash - && \
 RUN npm install -g neovim typescript emmet-ls tree-sitter-cli
 
 # --| Final |-------------------------------------------------------------------
-# Create any other needed dirs
+# Set up any other needed dirs
 FROM dev-deps as final
-RUN mkdir -p "${HOME}/.cache/nvim"
-RUN mkdir /nvim-devcontainer-shared
-RUN ln -s "${HOME}/.local/share/nvim-devcontianer/nvim ${HOME}/.local/share/"
+RUN mkdir -p /nvim-devcontainer/config /nvim-devcontainer/data /nvim-devcontainer/cache
+
+ENV XDG_CONFIG_HOME="/nvim-devcontainer/config"
+ENV XDG_DATA_HOME="/nvim-devcontainer/data"
+ENV XDG_CACHE_HOME="/nvim-devcontainer/cache"
