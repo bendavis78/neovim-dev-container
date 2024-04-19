@@ -111,21 +111,22 @@ def compose(args):
             del new_service[key]
 
     # Set up mountpoints
-    get_config_dir = lambda dir: os.path.realpath(os.path.join(xdg_config_home(), dir))
+    get_config_path = lambda path: os.path.realpath(os.path.join(xdg_config_home(), path))
     new_service["volumes"] = new_service.get("volumes", [])
     new_service["volumes"].extend([
         # The XDG dirs will be changed in the docker image to point to these
-        f"{get_config_dir('nvim')}:/nvim-devcontainer/config/nvim", 
-        f"{get_config_dir('copilot')}:/nvim-devcontainer/config/copilot",
+        f"{get_config_path('nvim')}:/nvim-devcontainer/config/nvim:ro", 
+        f"{get_config_path('.gitconfig')}:/nvim-devcontainer/config/nvim:ro", 
+        f"{get_config_path('copilot')}:/nvim-devcontainer/config/github-copilot:ro",
         "nvim-data:/nvim-devcontainer/data/nvim",
     ])
 
     # Set up shared nvim-data volume
-    compose_override_config["volumes"] = compose_override_config.get("volumes", {})
+    compose_override_config["volumes"] = compose_override_config.get("volumes") or {}
     compose_override_config["volumes"] = {"nvim-data": {}}
 
     # Add the new service
-    compose_override_config["services"] = compose_override_config.get("services", {})
+    compose_override_config["services"] = compose_override_config.get("services") or {}
     compose_override_config["services"][args.name] = new_service
 
     with open(compose_override_file, "w") as f:

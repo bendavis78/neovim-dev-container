@@ -12,8 +12,8 @@ RUN wget https://github.com/neovim/neovim/releases/download/v0.9.5/nvim-linux64.
 RUN tar xzf nvim-linux64.tar.gz
 RUN rsync -av nvim-linux64/ /usr/local/
 
-# Install python dev dependencies
-RUN pip install black isort flake8 debugpy pyright pynvim
+# Install python vim dependencies
+RUN pip install pynvim
 
 # Install nodejs dev dependencies
 RUN curl -fsSL https://deb.nodesource.com/setup_16.x | bash - && \
