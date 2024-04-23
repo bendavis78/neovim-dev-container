@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 import argparse
 import os
-import random
-import string
 import subprocess
 import sys
 import tempfile
 from io import StringIO
+from pathlib import Path
+from typing import Any
 
 from ruamel.yaml import YAML
 from xdg_base_dirs import xdg_config_home
@@ -14,13 +14,24 @@ from xdg_base_dirs import xdg_config_home
 
 script_dir = os.path.dirname(os.path.realpath(__file__))
 
+config: dict[str, str] = {
+    'config_home': str(xdg_config_home()),
+}
+config_dir = os.path.join(xdg_config_home(), "nvim-devcontainer")
+config_file = os.path.join(config_dir, "config.yaml")
 
-def random_string(length):
-    charset = string.ascii_lowercase + string.digits
-    return "".join(random.choice(charset) for _ in range(length))
+if os.path.exists(config_file):
+    with open(os.path.join(config_file)) as f:
+        yaml = YAML()
+        config.update(yaml.load(f))
 
 
-def deep_merge(dict1, dict2):
+def config_path(path: str) -> str:
+    config_home: Path = Path(config["config_home"])
+    return os.path.abspath(os.path.join(config_home, path))
+
+
+def deep_merge(dict1: dict[str, Any], dict2: dict[str, Any]) -> dict[str, Any]:
     result = dict1.copy()
     for key, value in dict2.items():
         if key in result and isinstance(result[key], dict) and isinstance(value, dict):
@@ -31,10 +42,12 @@ def deep_merge(dict1, dict2):
 
 
 class CommandError(Exception):
-    pass
+    def __init__(self, message: str) -> None:
+        self.message = message
+        super().__init__(message)
 
 
-def build(base_image_name, tag, context_dir):
+def build(base_image_name: str, tag: str, context_dir: Path | str) -> None:
     with open(os.path.join(script_dir, "Dockerfile.amd64"), "r") as f:
         template_contents = f.read()
 
@@ -44,14 +57,14 @@ def build(base_image_name, tag, context_dir):
         f.write(new_dockerfile_contents.encode())
         f.flush()
         tag = tag or f"{base_image_name}:nvim-devcontainer"
-        cmd = ["docker", "build", "-t", tag, "-f", f.name, context_dir]
+        cmd: list[str] = ["docker", "build", "-t", tag, "-f", f.name, str(context_dir)]
         print(" ".join(cmd))
         subprocess.run(cmd, check=True)
 
     print(f'Image "{tag}" is now available')
 
 
-def compose(args):
+def compose(args: argparse.Namespace) -> None:
     compose_file = os.path.join(args.directory, args.compose_file)
     compose_override_file = os.path.join(args.directory, args.compose_override_file)
     if not os.path.exists(args.compose_file):
@@ -76,9 +89,10 @@ def compose(args):
     # Update env vars in new service
     env = new_service.get("environment", [])
     if isinstance(env, dict):
-        env_list: list = [f"{k}={v}" for k, v in env.items()]
+        env_list: list[str] = [f"{k}={v}" for k, v in env.items()]
     else:
-        env_list: list = env
+        env_list = env
+
     env_list.extend([
       "COLORTERM",
       "ITERM_PROFILE",
@@ -111,15 +125,16 @@ def compose(args):
             del new_service[key]
 
     # Set up mountpoints
-    get_config_path = lambda path: os.path.realpath(os.path.join(xdg_config_home(), path))
     new_service["volumes"] = new_service.get("volumes", [])
-    new_service["volumes"].extend([
-        # The XDG dirs will be changed in the docker image to point to these
-        f"{get_config_path('nvim')}:/nvim-devcontainer/config/nvim:ro", 
-        f"{get_config_path('.gitconfig')}:/nvim-devcontainer/config/nvim:ro", 
-        f"{get_config_path('copilot')}:/nvim-devcontainer/config/github-copilot:ro",
-        "nvim-data:/nvim-devcontainer/data/nvim",
-    ])
+    new_service["volumes"].extend(
+        [
+            # The XDG dirs will be changed in the docker image to point to these
+            f"{config_path('nvim')}:/nvim-devcontainer/config/nvim:ro",
+            f"{config_path('.gitconfig')}:/nvim-devcontainer/config/.gitconfig:ro",
+            f"{config_path('github-copilot')}:/nvim-devcontainer/config/github-copilot",
+            "nvim-data:/nvim-devcontainer/data/nvim",
+        ]
+    )
 
     # Set up shared nvim-data volume
     compose_override_config["volumes"] = compose_override_config.get("volumes") or {}
@@ -135,7 +150,7 @@ def compose(args):
     print(f"Configured service '{args.name}' in {os.path.relpath(compose_override_file)}")
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command")
 
@@ -167,5 +182,5 @@ if __name__ == "__main__":
     try:
         main()
     except CommandError as e:
-        sys.stderr.write(f"e.value\n")
+        sys.stderr.write(f"{e.message}\n")
         sys.exit(1)

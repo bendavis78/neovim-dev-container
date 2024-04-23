@@ -28,3 +28,4 @@ RUN mkdir -p /nvim-devcontainer/config /nvim-devcontainer/data /nvim-devcontaine
 ENV XDG_CONFIG_HOME="/nvim-devcontainer/config"
 ENV XDG_DATA_HOME="/nvim-devcontainer/data"
 ENV XDG_CACHE_HOME="/nvim-devcontainer/cache"
+ENV NVIM_DEVCONTAINER=1
