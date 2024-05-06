@@ -1,2 +1,17 @@
+[project]
+name = "nvim-devcontainer"
+version = "0.1.0"
+dependencies = [
+    "ruamel.yaml>=0.18",
+    "pyxdg>=0.28",
+]
+
 [tool.mypy]
 strict = true
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project.scripts]
+nvim-devcontainer = "nvim_devcontainer:main"

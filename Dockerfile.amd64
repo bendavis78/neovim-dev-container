@@ -1,8 +1,12 @@
 #--| Local dev overrides |-----------------------------------------------------
 FROM %%__BASE_IMAGE__%% as override
+USER root
 
-RUN apt-get update && apt-get install -y wget curl python3-pip python3 git \
-    netcat-traditional ripgrep fd-find rsync
+
+RUN apt-get update && apt-get install -y \
+    wget curl git netcat-traditional ripgrep fd-find rsync xclip xsel
+
+RUN if ! command -v pip3; then apt-get install -y pip3; fi
 
 #--| Base dev dependencies |----------------------------------------------------
 FROM override AS dev-deps
@@ -13,11 +17,13 @@ RUN tar xzf nvim-linux64.tar.gz
 RUN rsync -av nvim-linux64/ /usr/local/
 
 # Install python vim dependencies
-RUN pip install pynvim
+RUN pip3 install pynvim
 
 # Install nodejs dev dependencies
-RUN curl -fsSL https://deb.nodesource.com/setup_16.x | bash - && \
-    apt-get install -y nodejs
+RUN if ! command -v npm; then \
+    curl -fsSL https://deb.nodesource.com/setup_16.x | bash - && apt-get install -y nodejs; \
+fi
+
 RUN npm install -g neovim typescript emmet-ls tree-sitter-cli
 
 # --| Final |-------------------------------------------------------------------

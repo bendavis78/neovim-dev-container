@@ -6,18 +6,18 @@ import sys
 import tempfile
 from io import StringIO
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 
 from ruamel.yaml import YAML
-from xdg_base_dirs import xdg_config_home
-
+from xdg import BaseDirectory as xdg  # type: ignore
 
 script_dir = os.path.dirname(os.path.realpath(__file__))
 
 config: dict[str, str] = {
-    'config_home': str(xdg_config_home()),
+    "config_home": str(xdg.xdg_config_home),
 }
-config_dir = os.path.join(xdg_config_home(), "nvim-devcontainer")
+config_dir = os.path.join(xdg.xdg_config_home, "nvim-devcontainer")
 config_file = os.path.join(config_dir, "config.yaml")
 
 if os.path.exists(config_file):
@@ -51,7 +51,9 @@ def build(base_image_name: str, tag: str, context_dir: Path | str) -> None:
     with open(os.path.join(script_dir, "Dockerfile.amd64"), "r") as f:
         template_contents = f.read()
 
-    new_dockerfile_contents = template_contents.replace("%%__BASE_IMAGE__%%", base_image_name)
+    new_dockerfile_contents = template_contents.replace(
+        "%%__BASE_IMAGE__%%", base_image_name
+    )
 
     with tempfile.NamedTemporaryFile() as f:
         f.write(new_dockerfile_contents.encode())
@@ -65,8 +67,8 @@ def build(base_image_name: str, tag: str, context_dir: Path | str) -> None:
 
 
 def compose(args: argparse.Namespace) -> None:
-    compose_file = os.path.join(args.directory, args.compose_file)
-    compose_override_file = os.path.join(args.directory, args.compose_override_file)
+    compose_file = Path(args.compose_file)
+    compose_override_file = Path(args.compose_override_file)
     if not os.path.exists(args.compose_file):
         raise CommandError(f"File not found: {os.path.relpath(compose_override_file)}")
 
@@ -85,7 +87,11 @@ def compose(args: argparse.Namespace) -> None:
     # Create new service in compose_override_config using deep clone of source service
     source_service = comopse_config["services"][args.source_service]
     new_service = source_service.copy()
-    
+
+    # Get the context dir
+    default_context_dir = os.path.dirname(args.compose_file)
+    context_dir = source_service.get("build", {}).get("context", default_context_dir)
+
     # Update env vars in new service
     env = new_service.get("environment", [])
     if isinstance(env, dict):
@@ -93,27 +99,30 @@ def compose(args: argparse.Namespace) -> None:
     else:
         env_list = env
 
-    env_list.extend([
-      "COLORTERM",
-      "ITERM_PROFILE",
-      "ITERM_SESSION_ID",
-      "LC_TERMINAL",
-      "LC_TERMINAL_VERSION",
-      "TERM",
-      "TERM_PROGRAM",
-      "TERM_PROGRAM_VERSION",
-      "TERM_SESSION_ID",
-    ])
+    env_list.extend(
+        [
+            "COLORTERM",
+            "ITERM_PROFILE",
+            "ITERM_SESSION_ID",
+            "LC_TERMINAL",
+            "LC_TERMINAL_VERSION",
+            "TERM",
+            "TERM_PROGRAM",
+            "TERM_PROGRAM_VERSION",
+            "TERM_SESSION_ID",
+        ]
+    )
     new_service["environment"] = env_list
 
     source_image = source_service.get("image")
     if source_image is None:
-        project_name = os.path.basename(os.path.abspath(args.directory))
+        project_name = os.path.basename(os.path.abspath(context_dir))
         source_image = f"{project_name}-{args.source_service}"
 
-    new_service["image"] = f"{source_image}:nvim-devcontainer"
+    source_image_base = source_image.split(":")[0]
+    new_service["image"] = f"{source_image_base}:nvim-devcontainer"
 
-    build(source_image, new_service["image"], args.directory)
+    build(source_image, new_service["image"], context_dir)
 
     new_service["stdin_open"] = True
     new_service["tty"] = True
@@ -130,9 +139,10 @@ def compose(args: argparse.Namespace) -> None:
         [
             # The XDG dirs will be changed in the docker image to point to these
             f"{config_path('nvim')}:/nvim-devcontainer/config/nvim:ro",
-            f"{config_path('.gitconfig')}:/nvim-devcontainer/config/.gitconfig:ro",
+            f"{config_path('git')}:/nvim-devcontainer/config/git:ro",
             f"{config_path('github-copilot')}:/nvim-devcontainer/config/github-copilot",
             "nvim-data:/nvim-devcontainer/data/nvim",
+            "/tmp/.X11-unix:/tmp/.X11-unix:ro",
         ]
     )
 
@@ -147,7 +157,9 @@ def compose(args: argparse.Namespace) -> None:
     with open(compose_override_file, "w") as f:
         yaml.dump(compose_override_config, f)
 
-    print(f"Configured service '{args.name}' in {os.path.relpath(compose_override_file)}")
+    print(
+        f"Configured service '{args.name}' in {os.path.relpath(compose_override_file)}"
+    )
 
 
 def main() -> None:
@@ -156,31 +168,58 @@ def main() -> None:
 
     build_parser = subparsers.add_parser("build", help="Build devcontainer image")
     build_parser.add_argument("base_image", type=str, help="Base image to use")
-    build_parser.add_argument("directory", type=str, help="Build context directory")
+    build_parser.add_argument(
+        "directory",
+        type=str,
+        help="Build context directory",
+        nargs="?",
+    )
 
     compose_parser = subparsers.add_parser("compose", help="")
-    compose_parser.add_argument("-s", "--source-service", type=str, help="", required=True)
-    compose_parser.add_argument("--compose-file", type=str, default="docker-compose.yml",
-                                help="Compose override file name (relative to project directory)")
-    compose_parser.add_argument("--compose-override-file", type=str,
-                                default="docker-compose.override.yml",
-                                help="Compose override file name (relative to project directory)")
-    compose_parser.add_argument("--name", type=str, default="vim", help="Name for new service")
-    compose_parser.add_argument("directory", type=str, help="Compose project directory")
+    compose_parser.add_argument(
+        "-s",
+        "--source-service",
+        type=str,
+        help="",
+    )
+    compose_parser.add_argument(
+        "--compose-file",
+        type=str,
+        default="docker-compose.yml",
+        help="Compose file path",
+    )
+    compose_parser.add_argument(
+        "--compose-override-file",
+        type=str,
+        default="{compose_file_dir}/docker-compose.override.yml",
+        help="Compose override file path",
+    )
+    compose_parser.add_argument(
+        "--name", type=str, default="vim", help="Name for new service"
+    )
 
     args = parser.parse_args()
 
-    if args.command == "build":
-        tag = f"{args.base_image}:nvim-devcontainer"
-        build(args.base_image, tag, args.directory)
-
-    elif args.command == "compose":
-        compose(args)
-
-
-if __name__ == "__main__":
     try:
-        main()
+        if args.command == "build":
+            tag_base = args.base_image.split(":")[0]
+            tag = f"{tag_base}:nvim-devcontainer"
+
+            if args.directory is None:
+                with TemporaryDirectory() as tmpdir:
+                    build(args.base_image, tag, tmpdir)
+            else:
+                build(args.base_image, tag, args.directory)
+
+        elif args.command == "compose":
+            args.compose_override_file = args.compose_override_file.format(
+                compose_file_dir=Path(os.path.dirname(args.compose_file))
+            )
+            compose(args)
     except CommandError as e:
         sys.stderr.write(f"{e.message}\n")
         sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
