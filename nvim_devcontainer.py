@@ -47,7 +47,12 @@ class CommandError(Exception):
         super().__init__(message)
 
 
-def build(base_image_name: str, tag: str, context_dir: Path | str) -> None:
+def build(
+    base_image_name: str,
+    tag: str,
+    context_dir: Path | str,
+    no_cache: bool = False,
+) -> None:
     with open(os.path.join(script_dir, "Dockerfile.amd64"), "r") as f:
         template_contents = f.read()
 
@@ -59,7 +64,10 @@ def build(base_image_name: str, tag: str, context_dir: Path | str) -> None:
         f.write(new_dockerfile_contents.encode())
         f.flush()
         tag = tag or f"{base_image_name}:nvim-devcontainer"
-        cmd: list[str] = ["docker", "build", "-t", tag, "-f", f.name, str(context_dir)]
+        cmd: list[str] = ["docker", "build"]
+        if no_cache:
+            cmd.append("--no-cache")
+        cmd.extend(["-t", tag, "-f", f.name, str(context_dir)])
         print(" ".join(cmd))
         subprocess.run(cmd, check=True)
 
@@ -122,7 +130,7 @@ def compose(args: argparse.Namespace) -> None:
     source_image_base = source_image.split(":")[0]
     new_service["image"] = f"{source_image_base}:nvim-devcontainer"
 
-    build(source_image, new_service["image"], context_dir)
+    build(source_image, new_service["image"], context_dir, no_cache=args.no_cache)
 
     new_service["stdin_open"] = True
     new_service["tty"] = True
@@ -174,13 +182,22 @@ def main() -> None:
         help="Build context directory",
         nargs="?",
     )
+    build_parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="Do not use cache when building the image",
+    )
 
-    compose_parser = subparsers.add_parser("compose", help="")
+    compose_parser = subparsers.add_parser(
+        "compose",
+        help="Create docker-compose override and build devcontainer from the given service",
+    )
     compose_parser.add_argument(
         "-s",
-        "--source-service",
+        "--service",
+        dest="source_service",
         type=str,
-        help="",
+        help="The service to use as a base for the new service",
     )
     compose_parser.add_argument(
         "--compose-file",
@@ -197,6 +214,11 @@ def main() -> None:
     compose_parser.add_argument(
         "--name", type=str, default="vim", help="Name for new service"
     )
+    compose_parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="Do not use cache when building the image",
+    )
 
     args = parser.parse_args()
 
@@ -207,7 +229,7 @@ def main() -> None:
 
             if args.directory is None:
                 with TemporaryDirectory() as tmpdir:
-                    build(args.base_image, tag, tmpdir)
+                    build(args.base_image, tag, tmpdir, no_cache=args.no_cache)
             else:
                 build(args.base_image, tag, args.directory)
 

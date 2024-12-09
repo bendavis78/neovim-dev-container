@@ -24,7 +24,7 @@ RUN curl -fLo /usr/local/bin/tree-sitter \
 RUN chmod +x /usr/local/bin/tree-sitter
 
 # Install python dev dependencies
-RUN pip install black isort flake8 debugpy pyright pynvim
+RUN pip3 install --isolated  --index-url https://pypi.org/simple/ pynvim
 
 # Install nodejs dev dependencies
 RUN curl -fsSL https://deb.nodesource.com/setup_16.x | bash - && \

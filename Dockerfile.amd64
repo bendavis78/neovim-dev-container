@@ -1,10 +1,10 @@
 #--| Local dev overrides |-----------------------------------------------------
-FROM %%__BASE_IMAGE__%% as override
+FROM %%__BASE_IMAGE__%% AS override
 USER root
 
 
 RUN apt-get update && apt-get install -y \
-    wget curl git netcat-traditional ripgrep fd-find rsync xclip xsel
+    wget curl git netcat-traditional ripgrep fd-find rsync unzip xclip xsel
 
 RUN if ! command -v pip3; then apt-get install -y pip3; fi
 
@@ -12,26 +12,27 @@ RUN if ! command -v pip3; then apt-get install -y pip3; fi
 FROM override AS dev-deps
 
 # Install neoovim
-RUN wget https://github.com/neovim/neovim/releases/download/v0.9.5/nvim-linux64.tar.gz
+RUN wget https://github.com/neovim/neovim/releases/download/v0.10.1/nvim-linux64.tar.gz
 RUN tar xzf nvim-linux64.tar.gz
 RUN rsync -av nvim-linux64/ /usr/local/
 
 # Install python vim dependencies
-RUN pip3 install pynvim
+RUN pip3 install --isolated  --index-url https://pypi.org/simple/ pynvim
 
 # Install nodejs dev dependencies
 RUN if ! command -v npm; then \
-    curl -fsSL https://deb.nodesource.com/setup_16.x | bash - && apt-get install -y nodejs; \
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs; \
 fi
 
 RUN npm install -g neovim typescript emmet-ls tree-sitter-cli
 
 # --| Final |-------------------------------------------------------------------
 # Set up any other needed dirs
-FROM dev-deps as final
+FROM dev-deps AS final
 RUN mkdir -p /nvim-devcontainer/config /nvim-devcontainer/data /nvim-devcontainer/cache
 
 ENV XDG_CONFIG_HOME="/nvim-devcontainer/config"
 ENV XDG_DATA_HOME="/nvim-devcontainer/data"
 ENV XDG_CACHE_HOME="/nvim-devcontainer/cache"
+
 ENV NVIM_DEVCONTAINER=1
