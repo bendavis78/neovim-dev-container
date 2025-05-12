@@ -1,10 +1,14 @@
+# Use build arguments to specify the Neovim package name
+ARG VERSION=0.10.4
+ARG PKGNAME=nvim-linux-x86_64
+
 #--| Local dev overrides |-----------------------------------------------------
 FROM %%__BASE_IMAGE__%% AS override
 USER root
 
-
 RUN apt-get update && apt-get install -y \
-    wget curl git netcat-traditional ripgrep fd-find rsync unzip xclip xsel luarocks
+    wget curl git netcat-traditional ripgrep fd-find rsync unzip xclip xsel \
+    luarocks cmake python3-venv
 
 RUN if ! command -v pip3; then apt-get install -y pip3; fi
 
@@ -12,10 +16,14 @@ RUN if ! command -v pip3; then apt-get install -y pip3; fi
 FROM override AS dev-deps
 WORKDIR /
 
+ARG VERSION
+ARG PKGNAME
+
 # Install neoovim
-RUN wget https://github.com/neovim/neovim/releases/download/v0.10.1/nvim-linux64.tar.gz
-RUN tar xzf nvim-linux64.tar.gz
-RUN rsync -av nvim-linux64/ /usr/local/
+RUN echo "VERSION: $VERSION, PKGNAME: $PKGNAME"
+RUN wget https://github.com/neovim/neovim/releases/download/v$VERSION/$PKGNAME.tar.gz && \
+    tar xzf $PKGNAME.tar.gz && \
+    rsync -av $PKGNAME/ /usr/local/
 
 # Install python vim dependencies
 RUN pip3 install --isolated  --index-url https://pypi.org/simple/ pynvim
@@ -40,3 +48,6 @@ ENV XDG_DATA_HOME="/nvim-devcontainer/data"
 ENV XDG_CACHE_HOME="/nvim-devcontainer/cache"
 
 ENV NVIM_DEVCONTAINER=1
+
+
+# vim: tw=120 ft=dockerfile

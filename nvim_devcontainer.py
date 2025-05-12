@@ -91,7 +91,7 @@ class Dockerfile:
     def _write_dockerfile(self) -> IO[Any]:
         sys.stdout.flush()
 
-        with open(os.path.join(script_dir, "Dockerfile.amd64"), "r") as f:
+        with open(os.path.join(script_dir, "Dockerfile.tpl"), "r") as f:
             template_contents = f.read()
 
         new_dockerfile_contents = template_contents.replace(
@@ -122,11 +122,11 @@ def build(
     tag: str,
     context_dir: Path | str,
     args: list | None = None,
-    out_filename: str | None = None,
+    dockerfile: str | None = None,
 ) -> None:
     args = args or []
 
-    with Dockerfile(base_image_name, out_filename) as f:
+    with Dockerfile(base_image_name, dockerfile) as f:
         tag = tag or f"{base_image_name}:nvim-devcontainer"
         cmd: list[str] = ["docker", "build"]
         cmd.extend(["-t", tag, "-f", f.name, str(context_dir)])
@@ -229,12 +229,12 @@ def compose(args: argparse.Namespace) -> None:
     compose_override_config["services"] = compose_override_config.get("services") or {}
     compose_override_config["services"][args.name] = new_service
 
-    if args.no_build and args.out_filename:
-        log.debug(f"Setting build settings to use {args.out_filename}")
+    if args.no_build and args.dockerfile:
+        log.debug(f"Setting build settings to use {args.dockerfile}")
         new_service["build"] = source_service.get("build", {})
         # get context_dir relative to compose file
         new_service["build"]["context"] = context_dir
-        new_service["build"]["dockerfile"] = args.out_filename
+        new_service["build"]["dockerfile"] = args.dockerfile
         new_service["build"]["target"] = "nvim-devcontainer"
 
 
@@ -245,14 +245,14 @@ def compose(args: argparse.Namespace) -> None:
             new_service["image"],
             context_dir,
             args=build_args,
-            out_filename=args.out_filename,
+            dockerfile=args.dockerfile,
         )
 
 
-    if args.out_filename:
-        Dockerfile(source_image, args.out_filename).write()
-        if args.out_filename != "-":
-            log.info("Dockerfile written to %s", args.out_filename)
+    if args.dockerfile:
+        Dockerfile(source_image, args.dockerfile).write()
+        if args.dockerfile != "-":
+            log.info("Dockerfile written to %s", args.dockerfile)
         else:
             log.info("Dockerfile written to stdout")
 
@@ -266,8 +266,13 @@ def compose(args: argparse.Namespace) -> None:
     )
 
 
+class ArgumentParser(argparse.ArgumentParser):
+    def convert_arg_line_to_args(self, arg_line: str) -> list[str]:
+        return arg_line.split()
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser()
+    parser = ArgumentParser(fromfile_prefix_chars="@")
     subparsers = parser.add_subparsers(dest="command")
 
     build_parser = subparsers.add_parser("build", help="Build devcontainer image")
@@ -280,10 +285,10 @@ def main() -> None:
     )
     build_parser.add_argument("build_args", nargs=argparse.REMAINDER, help="Args to pass to docker build")
     build_parser.add_argument(
-        "-o",
-        dest="out_filename",
+        "--dockerfile",
+        dest="dockerfile",
         type=str, 
-        help="Output path for generated Dockerfile (uses temp file by default)",
+        help="Output path for the generated Dockerfile (uses temp file by default)",
     )
     build_parser.add_argument(
         "--context-dir",
@@ -323,8 +328,8 @@ def main() -> None:
         help="Do not use cache when building the image",
     )
     compose_parser.add_argument(
-        "-o",
-        dest="out_filename",
+        "--dockerfile",
+        dest="dockerfile",
         type=str, 
         help="Output path for generated Dockerfile (uses temp file by default)",
     )
