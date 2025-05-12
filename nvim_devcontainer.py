@@ -5,11 +5,10 @@ import os
 import subprocess
 import sys
 import tempfile
-from contextlib import contextmanager
 from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import IO, Any, Iterator
+from typing import IO, Any, Iterable, Literal
 
 from ruamel.yaml import YAML
 from xdg import BaseDirectory as xdg  # type: ignore
@@ -41,20 +40,9 @@ log.addHandler(handler)
 
 script_dir = os.path.dirname(os.path.realpath(__file__))
 
-config: dict[str, str] = {
-    "config_home": str(xdg.xdg_config_home),
-}
-config_dir = os.path.join(xdg.xdg_config_home, "nvim-devcontainer")
-config_file = os.path.join(config_dir, "config.yaml")
-
-if os.path.exists(config_file):
-    with open(os.path.join(config_file)) as f:
-        yaml = YAML()
-        config.update(yaml.load(f))
-
 
 def config_path(path: str) -> str:
-    config_home: Path = Path(config["config_home"])
+    config_home: Path = Path(xdg.xdg_config_home)
     return os.path.abspath(os.path.join(config_home, path))
 
 
@@ -67,6 +55,12 @@ def deep_merge(dict1: dict[str, Any], dict2: dict[str, Any]) -> dict[str, Any]:
             result[key] = value
     return result
 
+def normalize_env_vars(env_vars):
+    # if env vars are a dict, convert to list
+    if isinstance(env_vars, dict):
+        env_vars = [f"{k}={v}" for k, v in env_vars.items()]
+    return env_vars
+
 
 class CommandError(Exception):
     def __init__(self, message: str) -> None:
@@ -75,10 +69,26 @@ class CommandError(Exception):
 
 
 class Dockerfile:
-    def __init__(self, base_image_name: str, filename: str | None = None):
+    def __init__(
+        self,
+        base_image_name: str,
+        template_path:  Path | None = None,
+        overrides: Iterable[Path] | None = None,
+        out_path: Path | Literal["-"] | None = None,
+    ):
         self.base_image_name = base_image_name
-        self.filename = filename
+        self.out_path = out_path
         self.file = None
+        self.overrides = overrides
+        if self.overrides is None:
+            self.overrides = (
+                Path(xdg.xdg_config_home) / "nvim-devcontainer" / "Dockerfile",
+                Path.cwd() / ".nvim-devcontainer" / "Dockerfile",
+            )
+
+        self.template_path = template_path
+        if self.template_path is None:
+            self.template_path = os.path.join(script_dir, "Dockerfile.tpl")
 
     def __enter__(self) -> IO[Any]:
         self.file = self._write_dockerfile()
@@ -91,19 +101,30 @@ class Dockerfile:
     def _write_dockerfile(self) -> IO[Any]:
         sys.stdout.flush()
 
-        with open(os.path.join(script_dir, "Dockerfile.tpl"), "r") as f:
+        with open(self.template_path, "r") as f:
             template_contents = f.read()
 
         new_dockerfile_contents = template_contents.replace(
             "%%__BASE_IMAGE__%%", self.base_image_name
         )
 
-        if self.filename == "-":
+        for override in self.overrides:
+            if not os.path.exists(override):
+                continue
+
+            with open(override, "r") as f:
+                override_contents = f.read()
+
+            # Get full path string of override, replacing home with ~
+            heading = f"## --| {override.absolute()} |--".ljust(80, "-")
+            new_dockerfile_contents += f"\n\n{heading}\n{override_contents}"
+
+        if self.out_path == "-":
             sys.stdout.write(new_dockerfile_contents)
             sys.stdout.flush()
             return sys.stdout
-        elif self.filename:
-            file = open(self.filename, "w")
+        elif self.out_path:
+            file = open(self.out_path, "w")
             file.write(new_dockerfile_contents)
             file.flush()
             return file
@@ -122,11 +143,17 @@ def build(
     tag: str,
     context_dir: Path | str,
     args: list | None = None,
-    dockerfile: str | None = None,
+    template_path: Path | None = None,
+    overrides: list[Path] | None = None,
+    dockerfile: Path | Literal["-"] | None = None,
 ) -> None:
     args = args or []
 
-    with Dockerfile(base_image_name, dockerfile) as f:
+    with Dockerfile(
+        base_image_name,
+        template_path=template_path,
+        out_path=dockerfile
+    ) as f:
         tag = tag or f"{base_image_name}:nvim-devcontainer"
         cmd: list[str] = ["docker", "build"]
         cmd.extend(["-t", tag, "-f", f.name, str(context_dir)])
@@ -159,6 +186,15 @@ def compose(args: argparse.Namespace) -> None:
     source_service = compose_config["services"][args.source_service]
     new_service = source_service.copy()
 
+    # Normalize env vars to list
+    new_service["environment"] = normalize_env_vars(new_service.get("environment", []))
+
+    # If new service name already exists in compose_override_config, then we merge any keys from
+    # there into the new service
+    if existing_service := compose_override_config["services"].get(args.name):
+        if not args.replace_existing:
+            new_service = deep_merge(existing_service, new_service)
+
     # Get the context dir
     build_config = source_service.get("build", {})
     context_dir = build_config.get("context")
@@ -169,13 +205,9 @@ def compose(args: argparse.Namespace) -> None:
             f"Could not determine context dir from service `{args.source_service}`"
         )
 
+    breakpoint()
     # Update env vars in new service
-    env = new_service.get("environment", [])
-    if isinstance(env, dict):
-        env_list: list[str] = [f"{k}={v}" for k, v in env.items()]
-    else:
-        env_list = env
-
+    env_list = normalize_env_vars(new_service.get("environment", []))
     env_list.extend(
         [
             "COLORTERM",
@@ -249,12 +281,13 @@ def compose(args: argparse.Namespace) -> None:
         )
 
 
-    if args.dockerfile:
-        Dockerfile(source_image, args.dockerfile).write()
-        if args.dockerfile != "-":
-            log.info("Dockerfile written to %s", args.dockerfile)
-        else:
-            log.info("Dockerfile written to stdout")
+    dockerfile = args.dockerfile
+    if dockerfile and dockerfile != "-":
+        dockerfile = Path(args.dockerfile)
+
+    outfile = Dockerfile(source_image, out_path=dockerfile).write()
+
+    log.info("Dockerfile written to %s", outfile.name)
 
     with open(compose_override_file, "w") as f:
         yaml.dump(compose_override_config, f)
@@ -323,11 +356,6 @@ def main() -> None:
         "--name", type=str, default="vim", help="Name for new service"
     )
     compose_parser.add_argument(
-        "--no-cache",
-        action="store_true",
-        help="Do not use cache when building the image",
-    )
-    compose_parser.add_argument(
         "--dockerfile",
         dest="dockerfile",
         type=str, 
@@ -337,6 +365,14 @@ def main() -> None:
         "--no-build",
         action="store_true",
         help="Output path for generated Dockerfile (uses temp file by default)",
+    )
+    compose_parser.add_argument(
+        "--replace-existing",
+        action="store_true",
+        help=(
+            "Replace existing service in compose override file. By default the existing serrvice "
+            "will be merged with the updated one."
+        ),
     )
     compose_parser.add_argument("build_args", nargs=argparse.REMAINDER, help="Args to pass to docker build")
 
