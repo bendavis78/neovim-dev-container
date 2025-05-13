@@ -191,7 +191,7 @@ def compose(args: argparse.Namespace) -> None:
 
     # If new service name already exists in compose_override_config, then we merge any keys from
     # there into the new service
-    if existing_service := compose_override_config["services"].get(args.name):
+    if existing_service := (compose_override_config.get("services") or {}).get(args.name):
         if not args.replace_existing:
             new_service = deep_merge(existing_service, new_service)
 
@@ -205,7 +205,6 @@ def compose(args: argparse.Namespace) -> None:
             f"Could not determine context dir from service `{args.source_service}`"
         )
 
-    breakpoint()
     # Update env vars in new service
     env_list = normalize_env_vars(new_service.get("environment", []))
     env_list.extend(
