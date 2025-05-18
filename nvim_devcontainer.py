@@ -184,6 +184,14 @@ def compose(args: argparse.Namespace) -> None:
 
     # Create new service in compose_override_config using deep clone of source service
     source_service = compose_config["services"][args.source_service]
+
+    ignore_keys = ["command", "build", "depends_on"]
+    build_config = source_service.get("build", {})
+
+    for key in ignore_keys:
+        if key in source_service:
+            del source_service[key]
+
     new_service = source_service.copy()
 
     # Normalize env vars to list
@@ -193,10 +201,9 @@ def compose(args: argparse.Namespace) -> None:
     # there into the new service
     if existing_service := (compose_override_config.get("services") or {}).get(args.name):
         if not args.replace_existing:
-            new_service = deep_merge(existing_service, new_service)
+            new_service = deep_merge(new_service, existing_service)
 
     # Get the context dir
-    build_config = source_service.get("build", {})
     context_dir = build_config.get("context")
 
     # Require context_dir
@@ -228,16 +235,11 @@ def compose(args: argparse.Namespace) -> None:
         source_image = f"{project_name}-{args.source_service}"
 
     source_image_base = source_image.split(":")[0]
-    new_service["image"] = f"{source_image_base}:nvim-devcontainer"
+    build_tag = f"{source_image_base}:nvim-devcontainer"
 
     new_service["stdin_open"] = True
     new_service["tty"] = True
     new_service["entrypoint"] = "nvim"
-
-    ignore_keys = ["command", "build", "depends_on"]
-    for key in ignore_keys:
-        if key in new_service:
-            del new_service[key]
 
     # Set up mountpoints
     new_service["volumes"] = new_service.get("volumes", [])
@@ -260,33 +262,20 @@ def compose(args: argparse.Namespace) -> None:
     compose_override_config["services"] = compose_override_config.get("services") or {}
     compose_override_config["services"][args.name] = new_service
 
-    if args.no_build and args.dockerfile:
-        log.debug(f"Setting build settings to use {args.dockerfile}")
-        new_service["build"] = source_service.get("build", {})
-        # get context_dir relative to compose file
-        new_service["build"]["context"] = context_dir
-        new_service["build"]["dockerfile"] = args.dockerfile
-        new_service["build"]["target"] = "nvim-devcontainer"
+    build_args = args.build_args and args.build_args[1:] or []
+    build(
+        source_image,
+        build_tag,
+        context_dir,
+        args=build_args,
+    )
 
-
-    else:
-        build_args = args.build_args and args.build_args[1:] or []
-        build(
-            source_image,
-            new_service["image"],
-            context_dir,
-            args=build_args,
-            dockerfile=args.dockerfile,
-        )
-
-
-    dockerfile = args.dockerfile
-    if dockerfile and dockerfile != "-":
-        dockerfile = Path(args.dockerfile)
-
-    outfile = Dockerfile(source_image, out_path=dockerfile).write()
-
-    log.info("Dockerfile written to %s", outfile.name)
+    # dockerfile = args.dockerfile
+    # if dockerfile and dockerfile != "-":
+    #     dockerfile = Path(args.dockerfile)
+    # outfile = Dockerfile(source_image, out_path=dockerfile).write()
+    #
+    # log.info("Dockerfile written to %s", outfile.name)
 
     with open(compose_override_file, "w") as f:
         yaml.dump(compose_override_config, f)
@@ -316,12 +305,6 @@ def main() -> None:
         nargs="?",
     )
     build_parser.add_argument("build_args", nargs=argparse.REMAINDER, help="Args to pass to docker build")
-    build_parser.add_argument(
-        "--dockerfile",
-        dest="dockerfile",
-        type=str, 
-        help="Output path for the generated Dockerfile (uses temp file by default)",
-    )
     build_parser.add_argument(
         "--context-dir",
         type=str,
@@ -353,17 +336,6 @@ def main() -> None:
     )
     compose_parser.add_argument(
         "--name", type=str, default="vim", help="Name for new service"
-    )
-    compose_parser.add_argument(
-        "--dockerfile",
-        dest="dockerfile",
-        type=str, 
-        help="Output path for generated Dockerfile (uses temp file by default)",
-    )
-    compose_parser.add_argument(
-        "--no-build",
-        action="store_true",
-        help="Output path for generated Dockerfile (uses temp file by default)",
     )
     compose_parser.add_argument(
         "--replace-existing",
