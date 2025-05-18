@@ -56,9 +56,17 @@ def deep_merge(dict1: dict[str, Any], dict2: dict[str, Any]) -> dict[str, Any]:
     return result
 
 def normalize_env_vars(env_vars):
-    # if env vars are a dict, convert to list
-    if isinstance(env_vars, dict):
-        env_vars = [f"{k}={v}" for k, v in env_vars.items()]
+    # if env vars are a list, convert to dict
+    if isinstance(env_vars, list):
+        dict_env_vars = {}
+        for item in env_vars:
+            if "=" in item:
+                key, value = item.split("=")
+            else:
+                key = item
+                value = None
+            dict_env_vars[key] = value
+        return dict_env_vars
     return env_vars
 
 
@@ -213,21 +221,18 @@ def compose(args: argparse.Namespace) -> None:
         )
 
     # Update env vars in new service
-    env_list = normalize_env_vars(new_service.get("environment", []))
-    env_list.extend(
-        [
-            "COLORTERM",
-            "ITERM_PROFILE",
-            "ITERM_SESSION_ID",
-            "LC_TERMINAL",
-            "LC_TERMINAL_VERSION",
-            "TERM",
-            "TERM_PROGRAM",
-            "TERM_PROGRAM_VERSION",
-            "TERM_SESSION_ID",
-        ]
-    )
-    new_service["environment"] = env_list
+    new_service["environment"] = normalize_env_vars(new_service.get("environment", []))
+    new_service["environment"] = {**new_service["environment"], **normalize_env_vars([
+        "COLORTERM",
+        "ITERM_PROFILE",
+        "ITERM_SESSION_ID",
+        "LC_TERMINAL",
+        "LC_TERMINAL_VERSION",
+        "TERM",
+        "TERM_PROGRAM",
+        "TERM_PROGRAM_VERSION",
+        "TERM_SESSION_ID",
+    ])}
 
     source_image = source_service.get("image")
     if source_image is None:
@@ -242,17 +247,16 @@ def compose(args: argparse.Namespace) -> None:
     new_service["entrypoint"] = "nvim"
 
     # Set up mountpoints
-    new_service["volumes"] = new_service.get("volumes", [])
-    new_service["volumes"].extend(
-        [
-            # The XDG dirs will be changed in the docker image to point to these
-            f"{config_path('nvim')}:/nvim-devcontainer/config/nvim:ro",
-            f"{config_path('git')}:/nvim-devcontainer/config/git:ro",
-            f"{config_path('github-copilot')}:/nvim-devcontainer/config/github-copilot",
-            "nvim-data:/nvim-devcontainer/data/nvim",
-            "/tmp/.X11-unix:/tmp/.X11-unix:ro",
-        ]
-    )
+    volumes = set(new_service.get("volumes", []))
+    volumes |= set((
+        # The XDG dirs will be changed in the docker image to point to these
+        f"{config_path('nvim')}:/nvim-devcontainer/config/nvim:ro",
+        f"{config_path('git')}:/nvim-devcontainer/config/git:ro",
+        f"{config_path('github-copilot')}:/nvim-devcontainer/config/github-copilot",
+        "nvim-data:/nvim-devcontainer/data/nvim",
+        "/tmp/.X11-unix:/tmp/.X11-unix:ro",
+    ))
+    new_service["volumes"] = sorted(list(volumes))
 
     # Set up shared nvim-data volume
     compose_override_config["volumes"] = compose_override_config.get("volumes") or {}
