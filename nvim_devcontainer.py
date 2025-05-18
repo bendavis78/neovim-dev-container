@@ -274,12 +274,9 @@ def compose(args: argparse.Namespace) -> None:
         args=build_args,
     )
 
-    # dockerfile = args.dockerfile
-    # if dockerfile and dockerfile != "-":
-    #     dockerfile = Path(args.dockerfile)
-    # outfile = Dockerfile(source_image, out_path=dockerfile).write()
-    #
-    # log.info("Dockerfile written to %s", outfile.name)
+    if args.dockerfile:
+        outfile = Dockerfile(source_image, out_path=args.dockerfile).write()
+        log.info("Dockerfile written to %s", outfile.name)
 
     with open(compose_override_file, "w") as f:
         yaml.dump(compose_override_config, f)
@@ -339,7 +336,7 @@ def main() -> None:
         help="Compose override file path",
     )
     compose_parser.add_argument(
-        "--name", type=str, default="vim", help="Name for new service"
+        "-n", "--name", type=str, default="vim", help="Name for new service",
     )
     compose_parser.add_argument(
         "--replace-existing",
@@ -348,6 +345,11 @@ def main() -> None:
             "Replace existing service in compose override file. By default the existing serrvice "
             "will be merged with the updated one."
         ),
+    )
+    compose_parser.add_argument(
+        "-d", "--dockerfile",
+        type=str,
+        help="Save the generated Dockerfile to the given path (defaults to temp file)"
     )
     compose_parser.add_argument("build_args", nargs=argparse.REMAINDER, help="Args to pass to docker build")
 
