@@ -277,6 +277,14 @@ def compose(args: argparse.Namespace) -> None:
     if args.dockerfile:
         outfile = Dockerfile(source_image, out_path=args.dockerfile).write()
         log.info("Dockerfile written to %s", outfile.name)
+        if not compose_override_config["services"][args.name].get("build"):
+            compose_override_config["services"][args.name]["build"] = {}
+        compose_override_config["services"][args.name]["build"].update(
+            {
+                "context": context_dir,
+                "dockerfile": outfile.name,
+            }
+        )
 
     with open(compose_override_file, "w") as f:
         yaml.dump(compose_override_config, f)
