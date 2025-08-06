@@ -258,6 +258,14 @@ def compose(args: argparse.Namespace) -> None:
     ))
     new_service["volumes"] = sorted(list(volumes))
 
+    # If the source service has a volume that mounts the current directory, and working_dir isn't
+    # set, then we set the working_dir to the directory that it is mounted to in the service
+    if "working_dir" not in new_service:
+        for volume in source_service["volumes"]:
+            if volume.startswith(".:") or volume.startswith("./:"):
+                new_service["working_dir"] = volume.split(":")[1]
+                break
+
     # Set up shared nvim-data volume
     compose_override_config["volumes"] = compose_override_config.get("volumes") or {}
     compose_override_config["volumes"] = {"nvim-data": {}}
